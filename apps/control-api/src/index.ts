@@ -1,0 +1,28 @@
+import {RUNTIME_PROTOCOL} from '@kezek/shared';
+import {baseApp,errors} from '@kezek/shared/dist/http.js';
+import {hash,passwordVerify,randomSecret,ensure,verifyPacket} from '@kezek/shared/dist/security.js';
+import {parse,serialize} from 'cookie';
+import {z} from 'zod';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import rateLimit from 'express-rate-limit';
+import express from 'express';
+import {db} from './db.js';
+import {mutate,overview,commandPacket} from './service.js';
+const origins=(process.env.CONTROL_ORIGINS||'http://localhost:3002').split(',');
+export const app=baseApp(origins);
+app.get('/api/health',async(_req,res)=>{await db.$queryRaw`SELECT 1`;res.json({ok:true,plane:'control',version:'1.0.0',protocol:1});});
+const limiter=rateLimit({windowMs:15*60_000,limit:30,standardHeaders:true,legacyHeaders:false});
+app.post('/api/login',limiter,async(req,res)=>{const d=z.object({login:z.string().max(100),password:z.string().max(200)}).parse(req.body);const owner=await db.owner.findUnique({where:{login:d.login.toLowerCase()}});ensure(owner?.active&&await passwordVerify(owner.passwordHash,d.password),'invalidCredentials',401);const token=randomSecret(),csrf=randomSecret();await db.session.create({data:{id:hash(token),ownerId:owner.id,csrf,expiresAt:new Date(Date.now()+8*3600_000)}});res.setHeader('Set-Cookie',serialize('kezek_control',token,{httpOnly:true,secure:process.env.COOKIE_SECURE==='true',sameSite:'strict',path:'/',maxAge:28800}));res.json({csrf});});
+async function bridgeIdentity(header:string|undefined){const i=header?.startsWith('Bearer ')?await db.installation.findUnique({where:{bridgeHash:hash(header.slice(7))}}):null;ensure(i,'forbidden',401);return i;}
+app.post('/api/bridge/sync',async(req,res)=>{const i=await bridgeIdentity(req.headers.authorization);const d=z.object({installationId:z.string().uuid(),version:z.string().max(40),mode:z.enum(['managed','isolated']),updates:z.array(z.object({version:z.string().max(40),status:z.string().max(40),updatedAt:z.string().datetime()})).max(10).optional(),devices:z.array(z.object({id:z.string(),companyId:z.string(),branchId:z.string(),name:z.string(),role:z.string(),active:z.boolean(),lastSeen:z.string(),version:z.string()})).max(10000).optional()}).parse(req.body);ensure(d.installationId===i.id,'wrongInstallation',403);const telemetry=i.mode==='managed'&&d.mode==='managed'?{devices:(d.devices||[]).filter(x=>i.companyIds.includes(x.companyId)&&i.branchIds.includes(x.branchId))}:{};if(d.updates?.length)Object.assign(telemetry,{updates:d.updates});await db.installation.update({where:{id:i.id},data:{lastSync:new Date(),version:d.version,telemetry}});const commands=await db.remoteCommand.findMany({where:{installationId:i.id,status:'PENDING'},orderBy:{createdAt:'asc'},take:100});res.json({commands:commands.map(commandPacket)});});
+app.post('/api/bridge/ack',async(req,res)=>{const i=await bridgeIdentity(req.headers.authorization);const d=z.object({id:z.string().uuid(),result:z.object({ok:z.boolean()})}).parse(req.body);await db.remoteCommand.updateMany({where:{id:d.id,installationId:i.id},data:{status:'APPLIED',result:d.result,appliedAt:new Date()}});res.json({ok:true});});
+app.use('/api',async(req,res,next)=>{try{const token=parse(req.headers.cookie||'').kezek_control;ensure(token,'loginRequired',401);const s=await db.session.findUnique({where:{id:hash(token)}});ensure(s&&s.expiresAt>new Date(),'loginRequired',401);ensure((await db.owner.findUnique({where:{id:s.ownerId}}))?.active,'loginRequired',401);res.locals.session=s;if(!['GET','HEAD'].includes(req.method))ensure(req.get('X-CSRF-Token')===s.csrf,'csrf',403);next();}catch(e){next(e);}});
+app.get('/api/me',(_req,res)=>res.json({role:'OWNER',csrf:res.locals.session.csrf}));
+app.get('/api/state',async(_req,res)=>res.json(await overview()));
+app.post('/api/logout',async(_req,res)=>{await db.session.delete({where:{id:res.locals.session.id}});res.clearCookie('kezek_control',{path:'/'}).json({ok:true});});
+app.post('/api/manage/:entity',async(req,res)=>res.json(await mutate(res.locals.session.ownerId,String(req.params.entity),req.body)));
+app.post('/api/releases',async(req,res)=>{ensure(process.env.UPDATE_PUBLIC_KEY_FILE,'signingNotConfigured',503);const manifest=verifyPacket(req.body,process.env.UPDATE_PUBLIC_KEY_FILE);ensure(manifest.kind==='release'&&manifest.protocol===RUNTIME_PROTOCOL&&typeof manifest.version==='string','invalidInput',400);res.json(await db.release.create({data:{version:manifest.version,manifest:req.body}}));});
+app.use('/api',(_req,_res,next)=>next(Object.assign(new Error('notFound'),{code:'NOT_FOUND'})));
+const web=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../web/dist-control');app.use(express.static(web,{index:false,maxAge:'1y',immutable:true}));app.get(/.*/,(_req,res)=>{res.setHeader('Cache-Control','no-store');res.sendFile(path.join(web,'index.html'));});app.use(errors);
+if(process.env.NODE_ENV!=='test')app.listen(Number(process.env.CONTROL_PORT||3002),process.env.HOST||'127.0.0.1',()=>console.log('Control Plane ready'));

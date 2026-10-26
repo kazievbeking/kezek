@@ -1,0 +1,2 @@
+import {PrismaClient} from '../generated/runtime/index.js';
+const mode=process.argv[2];if(!['managed','isolated'].includes(mode))throw Error('Use: set-privacy.ts managed|isolated');const db=new PrismaClient();try{await db.installation.updateMany({data:{mode}});await db.audit.create({data:{actorId:'local-operator',action:'installation.privacy',details:{mode}}});console.log('Privacy policy changed locally. Mode:',mode);}finally{await db.$disconnect();}

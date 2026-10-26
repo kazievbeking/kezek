@@ -1,0 +1,94 @@
+generator client {
+ provider = "prisma-client-js"
+ output = "../../generated/control"
+}
+datasource db {
+ provider = "postgresql"
+ url = env("CONTROL_DATABASE_URL")
+}
+model Owner {
+ id String @id @default(uuid())
+ login String @unique
+ name String
+ passwordHash String
+ active Boolean @default(true)
+}
+model Session {
+ id String @id
+ ownerId String
+ csrf String
+ expiresAt DateTime
+}
+model Company {
+ id String @id @default(uuid())
+ name String
+ adminLogin String
+ connectionsEnabled Boolean @default(true)
+ createdAt DateTime @default(now())
+}
+model CompanyBranch {
+ id String @id @default(uuid())
+ companyId String
+ code String
+ name String
+ address String @default("")
+ @@unique([companyId,code])
+ @@unique([companyId,id])
+}
+model Branch {
+ id String @id @default(uuid())
+ companyId String
+ companyBranchId String
+ code String
+ name String
+ address String @default("")
+ @@unique([companyId,companyBranchId,code])
+}
+model Installation {
+ id String @id @default(uuid())
+ name String
+ type String
+ mode String
+ companyIds String[]
+ branchIds String[]
+ url String
+ bridgeHash String @unique
+ lastSync DateTime?
+ version String?
+ telemetry Json @default("{}")
+}
+model Registration {
+ id String @id @default(uuid())
+ companyId String
+ installationId String
+ hash String @unique
+ name String
+ branchIds String[]
+ roles String[]
+ maxUses Int
+ expiresAt DateTime?
+ revoked Boolean @default(false)
+}
+model RemoteCommand {
+ id String @id @default(uuid())
+ installationId String
+ kind String
+ payload Json
+ status String @default("PENDING")
+ result Json?
+ createdAt DateTime @default(now())
+ appliedAt DateTime?
+}
+model Audit {
+ id String @id @default(uuid())
+ ownerId String
+ action String
+ details Json
+ createdAt DateTime @default(now())
+}
+model Release {
+ id String @id @default(uuid())
+ version String @unique
+ manifest Json
+ createdAt DateTime @default(now())
+}

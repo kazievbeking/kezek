@@ -1,0 +1,3 @@
+import {z} from 'zod';
+import {PrismaClient} from '../generated/runtime/index.js';
+const ticketId=z.string().uuid().parse(process.argv[2]);const db=new PrismaClient();try{const ticket=await db.ticket.findUniqueOrThrow({where:{id:ticketId}});const result=await db.printLease.updateMany({where:{ticketId,done:false},data:{done:true}});await db.audit.create({data:{companyId:ticket.companyId,branchId:ticket.branchId,actorId:'local-operator',action:'print.confirmed_by_operator',details:{ticketId,count:result.count}}});console.log('Printing leases confirmed:',result.count);}finally{await db.$disconnect();}

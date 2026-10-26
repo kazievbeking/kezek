@@ -1,0 +1,96 @@
+services:
+  runtime-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: runtime
+      POSTGRES_DB: kezek_runtime
+      POSTGRES_PASSWORD: ${POSTGRES_RUNTIME_PASSWORD:?Set runtime database password}
+    volumes: [runtime_data:/var/lib/postgresql/data]
+    networks: [runtime_private]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U runtime -d kezek_runtime"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+  control-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: control
+      POSTGRES_DB: kezek_control
+      POSTGRES_PASSWORD: ${POSTGRES_CONTROL_PASSWORD:?Set control database password}
+    volumes: [control_data:/var/lib/postgresql/data]
+    networks: [control_private]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U control -d kezek_control"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+  runtime-migrate:
+    build: {context: ., target: runtime}
+    environment:
+      RUNTIME_DATABASE_URL: postgresql://runtime:${POSTGRES_RUNTIME_PASSWORD}@runtime-db:5432/kezek_runtime
+    command: [node, node_modules/prisma/build/index.js, migrate, deploy, --schema, db/runtime/schema.prisma]
+    networks: [runtime_private]
+    depends_on: {runtime-db: {condition: service_healthy}}
+  control-migrate:
+    build: {context: ., target: control}
+    environment:
+      CONTROL_DATABASE_URL: postgresql://control:${POSTGRES_CONTROL_PASSWORD}@control-db:5432/kezek_control
+    command: [node, node_modules/prisma/build/index.js, migrate, deploy, --schema, db/control/schema.prisma]
+    networks: [control_private]
+    depends_on: {control-db: {condition: service_healthy}}
+  runtime:
+    build: {context: ., target: runtime}
+    env_file: .env.runtime
+    environment:
+      RUNTIME_DATABASE_URL: postgresql://runtime:${POSTGRES_RUNTIME_PASSWORD}@runtime-db:5432/kezek_runtime
+    ports: ["3001:3001"]
+    volumes: [runtime_local:/app/.local]
+    secrets: [control_public, release_public]
+    networks: [runtime_private, bridge]
+    depends_on: {runtime-migrate: {condition: service_completed_successfully}}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  control:
+    build: {context: ., target: control}
+    env_file: .env.control
+    environment:
+      CONTROL_DATABASE_URL: postgresql://control:${POSTGRES_CONTROL_PASSWORD}@control-db:5432/kezek_control
+    ports: ["3002:3002"]
+    secrets: [control_private, control_public, release_public]
+    networks: [control_private, bridge]
+    depends_on: {control-migrate: {condition: service_completed_successfully}}
+    restart: unless-stopped
+  updater:
+    profiles: [updater]
+    build: {context: ., target: runtime}
+    env_file: .env.runtime
+    environment:
+      RUNTIME_DATABASE_URL: postgresql://runtime:${POSTGRES_RUNTIME_PASSWORD}@runtime-db:5432/kezek_runtime
+    command: [node, --import, tsx, scripts/updater.ts]
+    volumes: [runtime_local:/app/.local]
+    secrets: [control_public, release_public]
+    networks: [runtime_private, bridge]
+    depends_on: {runtime-migrate: {condition: service_completed_successfully}}
+    restart: unless-stopped
+volumes:
+  runtime_data:
+  control_data:
+  runtime_local:
+networks:
+  runtime_private:
+    internal: true
+  control_private:
+    internal: true
+  bridge:
+secrets:
+  control_private:
+    file: ${CONTROL_PRIVATE_KEY_FILE:?Set Control Plane private key path}
+  control_public:
+    file: ${CONTROL_PUBLIC_KEY_FILE:?Set Control Plane public key path}
+  release_public:
+    file: ${RELEASE_PUBLIC_KEY_FILE:?Set release public key path}

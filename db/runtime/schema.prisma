@@ -1,0 +1,278 @@
+generator client {
+ provider = "prisma-client-js"
+ output = "../../generated/runtime"
+}
+datasource db {
+ provider = "postgresql"
+ url = env("RUNTIME_DATABASE_URL")
+}
+model Installation {
+ id String @id
+ mode String @default("isolated")
+ timezone String @default("Asia/Qyzylorda")
+ version String @default("1.0.0")
+ lastSync DateTime?
+ syncError String?
+ maintenance Boolean @default(false)
+ activatedAt DateTime @default(now())
+}
+model Company {
+ id String @id @default(uuid())
+ name String
+ settings Json @default("{}")
+ active Boolean @default(true)
+}
+model CompanyBranch {
+ id String @id @default(uuid())
+ companyId String
+ code String
+ name String
+ address String @default("")
+ active Boolean @default(true)
+ @@unique([companyId,code])
+ @@unique([companyId,id])
+}
+model Branch {
+ id String @id @default(uuid())
+ companyId String
+ companyBranchId String
+ code String
+ name String
+ address String @default("")
+ hours Json @default("{}")
+ settings Json @default("{}")
+ active Boolean @default(true)
+ version Int @default(0)
+ @@unique([companyId,companyBranchId,code])
+ @@unique([companyId,id])
+}
+model Person {
+ id String @id @default(uuid())
+ companyId String
+ login String @unique
+ email String?
+ firstName String
+ lastName String @default("")
+ role String
+ branchIds String[]
+ deskIds String[]
+ serviceIds String[]
+ passwordHash String
+ mustChange Boolean @default(true)
+ active Boolean @default(true)
+ locale String @default("ru")
+ createdAt DateTime @default(now())
+ @@unique([companyId,id])
+}
+model Session {
+ id String @id
+ userId String?
+ deviceId String?
+ delegationId String?
+ csrf String
+ expiresAt DateTime
+ createdAt DateTime @default(now())
+}
+model Delegation {
+ id String @id
+ companyId String
+ ownerId String
+ ownerName String
+ expiresAt DateTime
+ createdAt DateTime @default(now())
+}
+model Registration {
+ id String @id @default(uuid())
+ companyId String
+ hash String @unique
+ name String
+ branchIds String[]
+ roles String[]
+ expiresAt DateTime?
+ maxUses Int @default(20)
+ uses Int @default(0)
+ revoked Boolean @default(false)
+ createdAt DateTime @default(now())
+}
+model Device {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ deskId String?
+ name String
+ role String
+ active Boolean @default(true)
+ lastSeen DateTime @default(now())
+ version String @default("1.0.0")
+ locale String @default("ru")
+ @@unique([companyId,branchId,id])
+}
+model Service {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ name Json
+ prefix String
+ active Boolean @default(true)
+ parentId String?
+ @@index([companyId,branchId,parentId])
+ @@unique([companyId,branchId,prefix])
+ @@unique([companyId,branchId,id])
+}
+model Desk {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ name String
+ number Int
+ purpose String @default("")
+ serviceIds String[]
+ active Boolean @default(true)
+ @@unique([companyId,branchId,number])
+ @@unique([companyId,branchId,id])
+}
+model Shift {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ userId String
+ deskId String?
+ startedAt DateTime @default(now())
+ endedAt DateTime?
+ paused Boolean @default(false)
+ @@unique([companyId,branchId,id])
+}
+model Pause {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ shiftId String
+ startedAt DateTime @default(now())
+ endedAt DateTime?
+}
+model Counter {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ date String
+ prefix String
+ value Int
+ @@unique([companyId,branchId,date,prefix])
+}
+model Ticket {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ serviceId String
+ number String
+ date String
+ status String @default("WAITING")
+ userId String?
+ deskId String?
+ issuedAt DateTime @default(now())
+ calledAt DateTime?
+ startedAt DateTime?
+ endedAt DateTime?
+ @@unique([companyId,branchId,number,date])
+ @@unique([companyId,branchId,id])
+ @@index([companyId,branchId,status,issuedAt])
+}
+model Interval {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ ticketId String
+ userId String
+ deskId String?
+ startedAt DateTime @default(now())
+ endedAt DateTime?
+}
+model Call {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ ticketId String
+ number String
+ deskId String?
+ deskNumber Int?
+ userId String?
+ destination String @default("")
+ createdAt DateTime @default(now())
+ @@index([companyId,branchId,createdAt])
+}
+model Transfer {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ ticketId String
+ fromId String
+ toId String
+ comment String @default("")
+ status String @default("PENDING")
+ expiresAt DateTime
+ createdAt DateTime @default(now())
+ resolvedAt DateTime?
+}
+model Command {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ actorId String
+ key String
+ fingerprint String
+ result Json
+ @@unique([actorId,key])
+}
+model Outbox {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ version Int
+ type String
+ publishedAt DateTime?
+ createdAt DateTime @default(now())
+ @@unique([branchId,version])
+ @@index([publishedAt])
+}
+model Audit {
+ id String @id @default(uuid())
+ companyId String?
+ branchId String?
+ actorId String
+ action String
+ details Json @default("{}")
+ createdAt DateTime @default(now())
+}
+model ImportJob {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ actorId String
+ rows Json
+ status String @default("PREVIEW")
+ result Json @default("{}")
+ createdAt DateTime @default(now())
+}
+model BridgeReceipt {
+ id String @id
+ result Json
+ appliedAt DateTime @default(now())
+}
+model UpdateJob {
+ id String @id @default(uuid())
+ version String
+ status String
+ manifest Json
+ details String @default("")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model PrintLease {
+ id String @id @default(uuid())
+ companyId String
+ branchId String
+ deviceId String
+ ticketId String
+ done Boolean @default(false)
+ createdAt DateTime @default(now())
+}

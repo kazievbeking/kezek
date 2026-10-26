@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+**/dist*
+.env*
+.local
+.secrets
+.tools
+generated
+artifacts
+backups
+.git
+
+**/dist-runtime
+**/dist-control

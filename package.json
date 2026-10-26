@@ -1,0 +1,63 @@
+{
+  "name": "kezek-web-platform",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/runtime-api",
+    "apps/control-api",
+    "apps/web",
+    "packages/shared"
+  ],
+  "scripts": {
+    "generate": "prisma generate --schema db/runtime/schema.prisma && prisma generate --schema db/control/schema.prisma",
+    "migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
+    "bootstrap": "tsx --env-file=.env scripts/bootstrap.ts",
+    "build": "npm run generate && npm run build -w @kezek/shared && npm run build -w @kezek/runtime-api && npm run build -w @kezek/control-api && npm run build -w @kezek/web",
+    "dev": "concurrently \"npm run dev -w @kezek/runtime-api\" \"npm run dev -w @kezek/control-api\" \"npm run dev -w @kezek/web\"",
+    "test": "node --env-file-if-exists=.env scripts/test.mjs",
+    "check": "tsc -p apps/runtime-api && tsc -p apps/control-api && npm run check -w @kezek/web && tsc -p tsconfig.scripts.json",
+    "owner:create": "tsx --env-file-if-exists=.env scripts/create-owner.ts",
+    "updater": "tsx --env-file-if-exists=.env scripts/updater.ts",
+    "test:ui": "node tests/ui.cjs",
+    "test:restart": "node tests/restart.cjs",
+    "test:owner-access": "node tests/owner-access.cjs",
+    "test:services": "node tests/services.cjs",
+    "test:company-branches": "node tests/company-branches.cjs"
+  },
+  "dependencies": {
+    "@prisma/client": "6.8.2",
+    "argon2": "^0.41.1",
+    "cookie": "^1.0.2",
+    "cors": "^2.8.5",
+    "csv-parse": "^7.0.3",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.1.0",
+    "multer": "^2.0.2",
+    "pg": "^8.23.1",
+    "semver": "^7.7.3",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.18",
+    "@types/express": "^5.0.2",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.15.29",
+    "@types/pg": "^8.23.1",
+    "@types/semver": "^7.7.1",
+    "concurrently": "^9.2.1",
+    "playwright": "^1.56.1",
+    "prisma": "6.8.2",
+    "tsx": "^4.20.6",
+    "typescript": "~5.8.3"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
+  }
+}
